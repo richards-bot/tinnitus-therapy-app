@@ -49,17 +49,28 @@ describe('AudioEngine', () => {
     const pause = vi.fn();
     const load = vi.fn();
     const removeAttribute = vi.fn();
+    const remove = vi.fn();
+    const setAttribute = vi.fn();
+    const canPlayType = vi.fn(() => 'probably');
 
     class FakeAudio {
       loop = false;
       volume = 1;
+      preload = 'none';
+      paused = false;
+      readyState = 4;
+      networkState = 1;
+      style = { display: '' };
       src: string;
       play = play;
       pause = pause;
       load = load;
       removeAttribute = removeAttribute;
+      remove = remove;
+      setAttribute = setAttribute;
+      canPlayType = canPlayType;
 
-      constructor(src: string) {
+      constructor(src = '') {
         this.src = src;
       }
     }

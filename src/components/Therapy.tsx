@@ -41,6 +41,7 @@ function AudioPlayer({
   const [timerSecs, setTimerSecs] = useState(TIMER_OPTIONS[1].seconds);
   const [remaining, setRemaining] = useState<number | null>(null);
   const [audioMessage, setAudioMessage] = useState('');
+  const [debugCopied, setDebugCopied] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startedAtRef = useRef<string>('');
   const modeRef = useRef(mode);
@@ -85,6 +86,17 @@ function AudioPlayer({
         return prev - 1;
       });
     }, 1000);
+  }
+
+  async function copyAudioDebug() {
+    const report = audioEngine.getDebugReport();
+    try {
+      await navigator.clipboard.writeText(report);
+      setDebugCopied(true);
+      setTimeout(() => setDebugCopied(false), 2500);
+    } catch {
+      setAudioMessage(`${audioEngine.lastStatus.message}\n\nAudio debug report:\n${report}`);
+    }
   }
 
   const progress = remaining !== null ? ((timerSecs - remaining) / timerSecs) * 100 : 0;
@@ -153,6 +165,11 @@ function AudioPlayer({
           <div className={`alert ${playing ? 'alert-info' : 'alert-warning'}`} style={{ marginTop: '0.75rem', textAlign: 'left' }}>
             {audioMessage}
             {!playing && ' If you are using Telegram’s in-app browser, tap the menu and choose “Open in Browser”, then try Safari or Chrome.'}
+            <div style={{ marginTop: '0.75rem' }}>
+              <button className="btn btn-secondary" onClick={() => { void copyAudioDebug(); }}>
+                {debugCopied ? '✓ Debug copied' : 'Copy audio debug report'}
+              </button>
+            </div>
           </div>
         )}
       </div>

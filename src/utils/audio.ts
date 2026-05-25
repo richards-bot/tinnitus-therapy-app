@@ -52,6 +52,12 @@ export interface AudioStatus {
   degraded?: boolean;
 }
 
+interface AudioDebugEvent {
+  at: string;
+  event: string;
+  details?: Record<string, unknown>;
+}
+
 function getAudioContextCtor(): AudioContextCtor | null {
   if (typeof window === 'undefined') return null;
   return (
@@ -225,6 +231,11 @@ function makeFilteredNoiseBlob(kind: 'notch' | 'bandpass', centerFreq: number, p
   return makeStereoBlob(filtered, pan, kind === 'notch' ? 0.28 : 0.34);
 }
 
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return `${error.name}: ${error.message}`;
+  return String(error);
+}
+
 export class AudioEngine {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
@@ -235,6 +246,7 @@ export class AudioEngine {
   private fallbackUrl: string | null = null;
   private _isPlaying = false;
   private _lastStatus: AudioStatus = { backend: 'none', message: 'Audio has not started yet.' };
+  private debugEvents: AudioDebugEvent[] = [];
 
   get lastStatus(): AudioStatus {
     return this._lastStatus;
@@ -244,19 +256,64 @@ export class AudioEngine {
     this._lastStatus = status;
   }
 
+  private log(event: string, details?: Record<string, unknown>): void {
+    this.debugEvents.push({ at: new Date().toISOString(), event, details });
+    if (this.debugEvents.length > 30) this.debugEvents.shift();
+  }
+
+  getDebugReport(): string {
+    const probeAudio = typeof Audio !== 'undefined' ? new Audio() : null;
+    const nav = typeof navigator !== 'undefined' ? navigator : null;
+    const win = typeof window !== 'undefined' ? window : null;
+    const doc = typeof document !== 'undefined' ? document : null;
+    const report = {
+      url: win?.location.href,
+      userAgent: nav?.userAgent,
+      platform: nav?.platform,
+      maxTouchPoints: nav?.maxTouchPoints,
+      visibilityState: doc?.visibilityState,
+      isSecureContext: win?.isSecureContext,
+      audioContext: {
+        hasAudioContext: Boolean(win?.AudioContext),
+        hasWebkitAudioContext: Boolean((win as (Window & { webkitAudioContext?: AudioContextCtor }) | null)?.webkitAudioContext),
+        existingState: this.ctx?.state ?? null,
+        sampleRate: this.ctx?.sampleRate ?? null,
+      },
+      htmlAudio: {
+        hasAudio: typeof Audio !== 'undefined',
+        wavSupport: probeAudio?.canPlayType('audio/wav; codecs="1"') || probeAudio?.canPlayType('audio/wav') || 'unknown',
+        mp3Support: probeAudio?.canPlayType('audio/mpeg') || 'unknown',
+      },
+      lastStatus: this._lastStatus,
+      isPlaying: this._isPlaying,
+      debugEvents: this.debugEvents,
+    };
+    return JSON.stringify(report, null, 2);
+  }
+
   private async getCtx(): Promise<AudioContext | null> {
     const Ctor = getAudioContextCtor();
-    if (!Ctor) return null;
+    if (!Ctor) {
+      this.log('web-audio-unavailable');
+      return null;
+    }
     try {
       if (!this.ctx || this.ctx.state === 'closed') {
         this.ctx = new Ctor();
+        this.log('web-audio-created', { state: this.ctx.state, sampleRate: this.ctx.sampleRate });
       }
       if (this.ctx.state === 'suspended') {
+        this.log('web-audio-resume-start', { state: this.ctx.state });
         await this.ctx.resume();
+        this.log('web-audio-resume-finished', { state: this.ctx.state });
       }
-      if (this.ctx.state !== 'running') return null;
+      if (this.ctx.state !== 'running') {
+        this.log('web-audio-not-running', { state: this.ctx.state });
+        return null;
+      }
       return this.ctx;
-    } catch {
+    } catch (error) {
+      this.log('web-audio-error', { error: errorMessage(error), state: this.ctx?.state });
       return null;
     }
   }
@@ -292,7 +349,8 @@ export class AudioEngine {
       this.activeGain = gainNode;
 
       return { ctx, gainNode };
-    } catch {
+    } catch (error) {
+      this.log('web-audio-graph-error', { error: errorMessage(error) });
       return null;
     }
   }
@@ -346,8 +404,10 @@ export class AudioEngine {
       this.activeSource = osc;
       this._isPlaying = true;
       this.setStatus({ backend: 'web-audio', message: 'Tone playing with Web Audio.' });
+      this.log('web-audio-tone-started', { frequency, pan, gain, state: ctx.state });
       return true;
-    } catch {
+    } catch (error) {
+      this.log('web-audio-tone-error', { error: errorMessage(error) });
       this.stopWebAudio();
       return false;
     }
@@ -366,8 +426,10 @@ export class AudioEngine {
       this.activeSource = src;
       this._isPlaying = true;
       this.setStatus({ backend: 'web-audio', message: `${type} noise playing with Web Audio.` });
+      this.log('web-audio-noise-started', { type, pan, gain, state: ctx.state });
       return true;
-    } catch {
+    } catch (error) {
+      this.log('web-audio-noise-error', { error: errorMessage(error) });
       this.stopWebAudio();
       return false;
     }
@@ -392,8 +454,10 @@ export class AudioEngine {
       this.activeSource = src;
       this._isPlaying = true;
       this.setStatus({ backend: 'web-audio', message: 'Notched noise playing with Web Audio filtering.' });
+      this.log('web-audio-notched-started', { centerFreq, pan, gain, state: ctx.state });
       return true;
-    } catch {
+    } catch (error) {
+      this.log('web-audio-notched-error', { error: errorMessage(error) });
       this.stopWebAudio();
       return false;
     }
@@ -418,8 +482,10 @@ export class AudioEngine {
       this.activeSource = src;
       this._isPlaying = true;
       this.setStatus({ backend: 'web-audio', message: 'Narrowband noise playing with Web Audio filtering.' });
+      this.log('web-audio-narrowband-started', { centerFreq, pan, gain, state: ctx.state });
       return true;
-    } catch {
+    } catch (error) {
+      this.log('web-audio-narrowband-error', { error: errorMessage(error) });
       this.stopWebAudio();
       return false;
     }
@@ -440,13 +506,27 @@ export class AudioEngine {
       const audio = new Audio(url);
       audio.loop = true;
       audio.volume = Math.min(0.75, clamp01(gain));
+      audio.preload = 'auto';
+      audio.setAttribute('playsinline', 'true');
+      audio.style.display = 'none';
+      if (typeof document !== 'undefined' && document.body && audio instanceof Node) {
+        document.body.appendChild(audio);
+      }
       this.fallbackUrl = url;
       this.fallbackAudio = audio;
+      this.log('html-audio-play-start', {
+        blobType: blob.type,
+        blobSize: blob.size,
+        volume: audio.volume,
+        canPlayWav: audio.canPlayType('audio/wav') || 'unknown',
+      });
       await audio.play();
       this._isPlaying = true;
       this.setStatus({ backend: 'html-audio', message, degraded });
+      this.log('html-audio-play-started', { paused: audio.paused, readyState: audio.readyState, networkState: audio.networkState });
       return true;
-    } catch {
+    } catch (error) {
+      this.log('html-audio-play-error', { error: errorMessage(error) });
       this.stopFallback();
       this._isPlaying = false;
       this.setStatus({
@@ -493,6 +573,7 @@ export class AudioEngine {
       try { this.fallbackAudio.pause(); } catch { /* already stopped */ }
       this.fallbackAudio.removeAttribute('src');
       this.fallbackAudio.load();
+      this.fallbackAudio.remove();
     }
     if (this.fallbackUrl) {
       URL.revokeObjectURL(this.fallbackUrl);

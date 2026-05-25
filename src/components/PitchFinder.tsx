@@ -27,6 +27,7 @@ export default function PitchFinder({ match, onSaved }: Props) {
   const [playing, setPlaying] = useState(false);
   const [saved, setSaved] = useState(false);
   const [audioMessage, setAudioMessage] = useState('');
+  const [debugCopied, setDebugCopied] = useState(false);
   const earRef = useRef(ear);
   const gainRef = useRef(gain);
 
@@ -63,6 +64,17 @@ export default function PitchFinder({ match, onSaved }: Props) {
       setAudioMessage('');
     } else {
       void playTone();
+    }
+  }
+
+  async function copyAudioDebug() {
+    const report = audioEngine.getDebugReport();
+    try {
+      await navigator.clipboard.writeText(report);
+      setDebugCopied(true);
+      setTimeout(() => setDebugCopied(false), 2500);
+    } catch {
+      setAudioMessage(`${audioEngine.lastStatus.message}\n\nAudio debug report:\n${report}`);
     }
   }
 
@@ -214,6 +226,11 @@ export default function PitchFinder({ match, onSaved }: Props) {
             <div className={`alert ${playing ? 'alert-info' : 'alert-warning'}`} style={{ marginTop: '0.75rem', textAlign: 'left' }}>
               {audioMessage}
               {!playing && ' If you are using Telegram’s in-app browser, tap the menu and choose “Open in Browser”, then try Safari or Chrome.'}
+              <div style={{ marginTop: '0.75rem' }}>
+                <button className="btn btn-secondary" onClick={() => { void copyAudioDebug(); }}>
+                  {debugCopied ? '✓ Debug copied' : 'Copy audio debug report'}
+                </button>
+              </div>
             </div>
           )}
         </div>

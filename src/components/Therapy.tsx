@@ -40,6 +40,7 @@ function AudioPlayer({
   const [gain, setGain] = useState(0.5);
   const [timerSecs, setTimerSecs] = useState(TIMER_OPTIONS[1].seconds);
   const [remaining, setRemaining] = useState<number | null>(null);
+  const [audioMessage, setAudioMessage] = useState('');
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startedAtRef = useRef<string>('');
   const modeRef = useRef(mode);
@@ -48,6 +49,7 @@ function AudioPlayer({
   const stopAll = useCallback(() => {
     onStop();
     setPlaying(false);
+    setAudioMessage('');
     if (intervalRef.current) clearInterval(intervalRef.current);
     intervalRef.current = null;
     setRemaining(null);
@@ -56,6 +58,7 @@ function AudioPlayer({
   async function handlePlay() {
     if (playing) { stopAll(); return; }
     const ok = await onPlay(gain);
+    setAudioMessage(audioEngine.lastStatus.message);
     if (!ok) return;
     setPlaying(true);
     startedAtRef.current = new Date().toISOString();
@@ -146,6 +149,12 @@ function AudioPlayer({
         <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
           {playing ? `Playing${remaining !== null ? ` · ${formatTime(remaining)} remaining` : ''}` : `Press to start · ${formatTime(timerSecs)} session`}
         </p>
+        {audioMessage && (
+          <div className={`alert ${playing ? 'alert-info' : 'alert-warning'}`} style={{ marginTop: '0.75rem', textAlign: 'left' }}>
+            {audioMessage}
+            {!playing && ' If you are using Telegram’s in-app browser, tap the menu and choose “Open in Browser”, then try Safari or Chrome.'}
+          </div>
+        )}
       </div>
     </div>
   );

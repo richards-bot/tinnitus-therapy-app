@@ -35,63 +35,99 @@ describe('audio utilities', () => {
 
 describe('AudioEngine', () => {
   const originalAudioContext = window.AudioContext;
+  const originalUrl = window.URL;
 
   afterEach(() => {
     window.AudioContext = originalAudioContext;
+    vi.unstubAllGlobals();
+    window.URL = originalUrl;
     vi.restoreAllMocks();
   });
 
-  it('waits for a suspended AudioContext to resume before starting playback', async () => {
-    const startStates: string[] = [];
+  function mockHtmlAudio(playImpl: () => Promise<void> = () => Promise.resolve()) {
+    const play = vi.fn(playImpl);
+    const pause = vi.fn();
+    const load = vi.fn();
+    const removeAttribute = vi.fn();
+
+    class FakeAudio {
+      loop = false;
+      volume = 1;
+      src: string;
+      play = play;
+      pause = pause;
+      load = load;
+      removeAttribute = removeAttribute;
+
+      constructor(src: string) {
+        this.src = src;
+      }
+    }
+
+    vi.stubGlobal('Audio', FakeAudio);
+    vi.stubGlobal('URL', {
+      ...URL,
+      createObjectURL: vi.fn(() => 'blob:test-audio'),
+      revokeObjectURL: vi.fn(),
+    });
+
+    return { play, pause, load, removeAttribute };
+  }
+
+  it('plays pitch tones through the HTMLAudio fallback backend', async () => {
+    const htmlAudio = mockHtmlAudio();
+    window.AudioContext = undefined as unknown as typeof AudioContext;
+
+    const engine = new AudioEngine();
+    const ok = await engine.playTone(440, 0, 0.5);
+
+    expect(ok).toBe(true);
+    expect(htmlAudio.play).toHaveBeenCalledTimes(1);
+    expect(engine.lastStatus.backend).toBe('html-audio');
+  });
+
+  it('plays simple noise through the HTMLAudio fallback backend', async () => {
+    const htmlAudio = mockHtmlAudio();
+    window.AudioContext = undefined as unknown as typeof AudioContext;
+
+    const engine = new AudioEngine();
+    const ok = await engine.playNoise('pink', 0, 0.5);
+
+    expect(ok).toBe(true);
+    expect(htmlAudio.play).toHaveBeenCalledTimes(1);
+    expect(engine.lastStatus.message).toContain('pink noise');
+  });
+
+  it('reports a helpful failure when media-element playback is rejected', async () => {
+    mockHtmlAudio(() => Promise.reject(new Error('blocked')));
+    window.AudioContext = undefined as unknown as typeof AudioContext;
+
+    const engine = new AudioEngine();
+    const ok = await engine.playTone(440, 0, 0.5);
+
+    expect(ok).toBe(false);
+    expect(engine.lastStatus.backend).toBe('none');
+    expect(engine.lastStatus.message).toContain('Telegram');
+  });
+
+  it('falls back to HTMLAudio when advanced notched Web Audio cannot resume', async () => {
+    const htmlAudio = mockHtmlAudio();
 
     class FakeAudioContext {
       state = 'suspended';
-      currentTime = 0;
-      sampleRate = 44_100;
-      destination = {};
-
       async resume() {
-        await Promise.resolve();
-        this.state = 'running';
-      }
-
-      createGain() {
-        return {
-          context: this,
-          gain: {
-            value: 0,
-            setValueAtTime: vi.fn(),
-            linearRampToValueAtTime: vi.fn(),
-          },
-          connect: vi.fn(),
-        };
-      }
-
-      createStereoPanner() {
-        return {
-          pan: { value: 0 },
-          connect: vi.fn(),
-        };
-      }
-
-      createOscillator() {
-        return {
-          type: 'sine',
-          frequency: { value: 0 },
-          connect: vi.fn(),
-          disconnect: vi.fn(),
-          start: vi.fn(() => startStates.push(this.state)),
-          stop: vi.fn(),
-        };
+        throw new Error('blocked');
       }
     }
 
     window.AudioContext = FakeAudioContext as unknown as typeof AudioContext;
 
     const engine = new AudioEngine();
-    const ok = await engine.playTone(440, 0, 0.5);
+    const ok = await engine.playNotchedNoise(8000, 0, 0.5);
 
     expect(ok).toBe(true);
-    expect(startStates).toEqual(['running']);
+    expect(htmlAudio.play).toHaveBeenCalledTimes(1);
+    expect(engine.lastStatus.backend).toBe('html-audio');
+    expect(engine.lastStatus.degraded).toBe(true);
   });
 });

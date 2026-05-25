@@ -5,6 +5,8 @@ const FREQ_MAX = 16000;
 const SLIDER_MAX = 1000;
 export const MASTER_GAIN_CAP = 0.25;
 const FADE_TIME = 0.5;
+const FALLBACK_RATE = 44_100;
+const FALLBACK_SECONDS = 2;
 
 // Pure utility functions (safe to test without AudioContext)
 
@@ -37,9 +39,18 @@ export function stepFreqByOctave(freq: number, octaves: number): number {
   return Math.max(FREQ_MIN, Math.min(FREQ_MAX, freq * Math.pow(2, octaves)));
 }
 
-// AudioEngine — manages a shared AudioContext and active audio nodes
+// AudioEngine — manages playback. Web Audio is preferred for precise synthesis/filtering;
+// HTMLAudioElement looped WAV blobs are a compatibility fallback for mobile in-app browsers
+// (Telegram/iOS WKWebView) where AudioContext can fail to start even after resume().
 
 type AudioContextCtor = typeof AudioContext;
+export type AudioBackend = 'html-audio' | 'web-audio' | 'none';
+
+export interface AudioStatus {
+  backend: AudioBackend;
+  message: string;
+  degraded?: boolean;
+}
 
 function getAudioContextCtor(): AudioContextCtor | null {
   if (typeof window === 'undefined') return null;
@@ -79,147 +90,389 @@ function fillBrownNoise(data: Float32Array): void {
   }
 }
 
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function channelGains(pan: number): { left: number; right: number } {
+  const clamped = Math.max(-1, Math.min(1, pan));
+  return {
+    left: clamped > 0 ? 1 - clamped : 1,
+    right: clamped < 0 ? 1 + clamped : 1,
+  };
+}
+
+function encodeWavStereo(left: Float32Array, right: Float32Array, sampleRate: number): Blob {
+  const frames = Math.min(left.length, right.length);
+  const buffer = new ArrayBuffer(44 + frames * 4);
+  const view = new DataView(buffer);
+
+  function writeString(offset: number, value: string): void {
+    for (let i = 0; i < value.length; i++) view.setUint8(offset + i, value.charCodeAt(i));
+  }
+
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + frames * 4, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 2, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 4, true);
+  view.setUint16(32, 4, true);
+  view.setUint16(34, 16, true);
+  writeString(36, 'data');
+  view.setUint32(40, frames * 4, true);
+
+  let offset = 44;
+  for (let i = 0; i < frames; i++) {
+    view.setInt16(offset, Math.max(-1, Math.min(1, left[i])) * 0x7fff, true);
+    view.setInt16(offset + 2, Math.max(-1, Math.min(1, right[i])) * 0x7fff, true);
+    offset += 4;
+  }
+
+  return new Blob([buffer], { type: 'audio/wav' });
+}
+
+function makeStereoBlob(mono: Float32Array, pan: number, amplitude: number): Blob {
+  const { left: leftGain, right: rightGain } = channelGains(pan);
+  const left = new Float32Array(mono.length);
+  const right = new Float32Array(mono.length);
+  for (let i = 0; i < mono.length; i++) {
+    left[i] = mono[i] * amplitude * leftGain;
+    right[i] = mono[i] * amplitude * rightGain;
+  }
+  return encodeWavStereo(left, right, FALLBACK_RATE);
+}
+
+function makeToneBlob(frequency: number, pan: number): Blob {
+  const frames = FALLBACK_RATE * FALLBACK_SECONDS;
+  const mono = new Float32Array(frames);
+  const clampedFrequency = Math.max(FREQ_MIN, Math.min(FREQ_MAX, frequency));
+  for (let i = 0; i < frames; i++) {
+    // short envelope at loop boundaries to avoid hard clicks
+    const t = i / FALLBACK_RATE;
+    const edge = Math.min(i, frames - 1 - i) / (FALLBACK_RATE * 0.02);
+    const env = Math.min(1, Math.max(0, edge));
+    mono[i] = Math.sin(2 * Math.PI * clampedFrequency * t) * env;
+  }
+  return makeStereoBlob(mono, pan, 0.3);
+}
+
+function makeNoiseBlob(type: NoiseType, pan: number): Blob {
+  const frames = FALLBACK_RATE * FALLBACK_SECONDS;
+  const mono = new Float32Array(frames);
+  if (type === 'white') fillWhiteNoise(mono);
+  else if (type === 'pink') fillPinkNoise(mono);
+  else fillBrownNoise(mono);
+  return makeStereoBlob(mono, pan, 0.28);
+}
+
+function applyBiquad(
+  input: Float32Array,
+  kind: 'notch' | 'bandpass',
+  frequency: number,
+  q: number,
+): Float32Array {
+  const output = new Float32Array(input.length);
+  const f = Math.max(80, Math.min(FREQ_MAX, frequency));
+  const w0 = 2 * Math.PI * f / FALLBACK_RATE;
+  const cos = Math.cos(w0);
+  const alpha = Math.sin(w0) / (2 * q);
+
+  let b0: number;
+  let b1: number;
+  let b2: number;
+  const a0 = 1 + alpha;
+  const a1 = -2 * cos;
+  const a2 = 1 - alpha;
+
+  if (kind === 'notch') {
+    b0 = 1;
+    b1 = -2 * cos;
+    b2 = 1;
+  } else {
+    b0 = alpha;
+    b1 = 0;
+    b2 = -alpha;
+  }
+
+  b0 /= a0;
+  b1 /= a0;
+  b2 /= a0;
+  const na1 = a1 / a0;
+  const na2 = a2 / a0;
+
+  let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+  for (let i = 0; i < input.length; i++) {
+    const x0 = input[i];
+    const y0 = b0 * x0 + b1 * x1 + b2 * x2 - na1 * y1 - na2 * y2;
+    output[i] = y0;
+    x2 = x1;
+    x1 = x0;
+    y2 = y1;
+    y1 = y0;
+  }
+  return output;
+}
+
+function makeFilteredNoiseBlob(kind: 'notch' | 'bandpass', centerFreq: number, pan: number): Blob {
+  const frames = FALLBACK_RATE * FALLBACK_SECONDS;
+  const mono = new Float32Array(frames);
+  fillWhiteNoise(mono);
+  const filtered = applyBiquad(mono, kind, centerFreq, kind === 'notch' ? 1.4 : 8);
+  return makeStereoBlob(filtered, pan, kind === 'notch' ? 0.28 : 0.34);
+}
+
 export class AudioEngine {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
   private activeSource: OscillatorNode | AudioBufferSourceNode | null = null;
   private activeGain: GainNode | null = null;
   private activePanner: StereoPannerNode | null = null;
+  private fallbackAudio: HTMLAudioElement | null = null;
+  private fallbackUrl: string | null = null;
   private _isPlaying = false;
+  private _lastStatus: AudioStatus = { backend: 'none', message: 'Audio has not started yet.' };
+
+  get lastStatus(): AudioStatus {
+    return this._lastStatus;
+  }
+
+  private setStatus(status: AudioStatus): void {
+    this._lastStatus = status;
+  }
 
   private async getCtx(): Promise<AudioContext | null> {
     const Ctor = getAudioContextCtor();
     if (!Ctor) return null;
-    if (!this.ctx || this.ctx.state === 'closed') {
-      this.ctx = new Ctor();
-    }
-    if (this.ctx.state === 'suspended') {
-      try {
-        await this.ctx.resume();
-      } catch {
-        return null;
+    try {
+      if (!this.ctx || this.ctx.state === 'closed') {
+        this.ctx = new Ctor();
       }
+      if (this.ctx.state === 'suspended') {
+        await this.ctx.resume();
+      }
+      if (this.ctx.state !== 'running') return null;
+      return this.ctx;
+    } catch {
+      return null;
     }
-    if (this.ctx.state !== 'running') return null;
-    return this.ctx;
   }
 
   private async buildGraph(pan: number, gain: number): Promise<{ ctx: AudioContext; gainNode: GainNode } | null> {
     const ctx = await this.getCtx();
     if (!ctx) return null;
 
-    if (!this.masterGain || this.masterGain.context !== ctx) {
-      this.masterGain = ctx.createGain();
-      this.masterGain.gain.value = MASTER_GAIN_CAP;
-      this.masterGain.connect(ctx.destination);
+    try {
+      if (!this.masterGain || this.masterGain.context !== ctx) {
+        this.masterGain = ctx.createGain();
+        this.masterGain.gain.value = MASTER_GAIN_CAP;
+        this.masterGain.connect(ctx.destination);
+      }
+
+      const gainNode = ctx.createGain();
+      gainNode.gain.setValueAtTime(0, ctx.currentTime);
+      gainNode.gain.linearRampToValueAtTime(
+        Math.min(gain, 1),
+        ctx.currentTime + FADE_TIME,
+      );
+
+      if (typeof ctx.createStereoPanner === 'function') {
+        const panner = ctx.createStereoPanner();
+        panner.pan.value = pan;
+        gainNode.connect(panner);
+        panner.connect(this.masterGain);
+        this.activePanner = panner;
+      } else {
+        gainNode.connect(this.masterGain);
+        this.activePanner = null;
+      }
+      this.activeGain = gainNode;
+
+      return { ctx, gainNode };
+    } catch {
+      return null;
     }
-
-    const gainNode = ctx.createGain();
-    gainNode.gain.setValueAtTime(0, ctx.currentTime);
-    gainNode.gain.linearRampToValueAtTime(
-      Math.min(gain, 1),
-      ctx.currentTime + FADE_TIME,
-    );
-
-    if (typeof ctx.createStereoPanner === 'function') {
-      const panner = ctx.createStereoPanner();
-      panner.pan.value = pan;
-      gainNode.connect(panner);
-      panner.connect(this.masterGain);
-      this.activePanner = panner;
-    } else {
-      gainNode.connect(this.masterGain);
-      this.activePanner = null;
-    }
-    this.activeGain = gainNode;
-
-    return { ctx, gainNode };
   }
 
   async playTone(frequency: number, pan: number, gain: number): Promise<boolean> {
     this.stop();
-    const result = await this.buildGraph(pan, gain);
-    if (!result) return false;
-    const { ctx, gainNode } = result;
-
-    const osc = ctx.createOscillator();
-    osc.type = 'sine';
-    osc.frequency.value = frequency;
-    osc.connect(gainNode);
-    osc.start();
-
-    this.activeSource = osc;
-    this._isPlaying = true;
-    return true;
+    if (await this.tryPlayToneWebAudio(frequency, pan, gain)) return true;
+    return this.playFallback(makeToneBlob(frequency, pan), gain, 'Tone playing using the compatible audio backend.');
   }
 
   async playNoise(type: NoiseType, pan: number, gain: number): Promise<boolean> {
     this.stop();
-    const result = await this.buildGraph(pan, gain);
-    if (!result) return false;
-    const { ctx, gainNode } = result;
-
-    const src = this.createNoiseSource(ctx, type);
-    src.connect(gainNode);
-    src.start();
-
-    this.activeSource = src;
-    this._isPlaying = true;
-    return true;
+    if (await this.tryPlayNoiseWebAudio(type, pan, gain)) return true;
+    return this.playFallback(makeNoiseBlob(type, pan), gain, `${type} noise playing using the compatible audio backend.`);
   }
 
   async playNotchedNoise(centerFreq: number, pan: number, gain: number): Promise<boolean> {
     this.stop();
-    const result = await this.buildGraph(pan, gain);
-    if (!result) return false;
-    const { ctx, gainNode } = result;
-
-    const src = this.createNoiseSource(ctx, 'white');
-
-    const notch = ctx.createBiquadFilter();
-    notch.type = 'notch';
-    notch.frequency.value = centerFreq;
-    notch.Q.value = 1.4; // ~1 octave notch
-
-    src.connect(notch);
-    notch.connect(gainNode);
-    src.start();
-
-    this.activeSource = src;
-    this._isPlaying = true;
-    return true;
+    if (await this.tryPlayNotchedNoiseWebAudio(centerFreq, pan, gain)) return true;
+    return this.playFallback(
+      makeFilteredNoiseBlob('notch', centerFreq, pan),
+      gain,
+      'Notched-noise approximation playing using the compatible audio backend.',
+      true,
+    );
   }
 
   async playNarrowband(centerFreq: number, pan: number, gain: number): Promise<boolean> {
     this.stop();
+    if (await this.tryPlayNarrowbandWebAudio(centerFreq, pan, gain)) return true;
+    return this.playFallback(
+      makeFilteredNoiseBlob('bandpass', centerFreq, pan),
+      gain,
+      'Narrowband-noise approximation playing using the compatible audio backend.',
+      true,
+    );
+  }
+
+  private async tryPlayToneWebAudio(frequency: number, pan: number, gain: number): Promise<boolean> {
     const result = await this.buildGraph(pan, gain);
     if (!result) return false;
     const { ctx, gainNode } = result;
 
-    const src = this.createNoiseSource(ctx, 'white');
+    try {
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = Math.max(FREQ_MIN, Math.min(FREQ_MAX, frequency));
+      osc.connect(gainNode);
+      osc.start();
 
-    const bp = ctx.createBiquadFilter();
-    bp.type = 'bandpass';
-    bp.frequency.value = centerFreq;
-    bp.Q.value = 8;
+      this.activeSource = osc;
+      this._isPlaying = true;
+      this.setStatus({ backend: 'web-audio', message: 'Tone playing with Web Audio.' });
+      return true;
+    } catch {
+      this.stopWebAudio();
+      return false;
+    }
+  }
 
-    src.connect(bp);
-    bp.connect(gainNode);
-    src.start();
+  private async tryPlayNoiseWebAudio(type: NoiseType, pan: number, gain: number): Promise<boolean> {
+    const result = await this.buildGraph(pan, gain);
+    if (!result) return false;
+    const { ctx, gainNode } = result;
 
-    this.activeSource = src;
-    this._isPlaying = true;
-    return true;
+    try {
+      const src = this.createNoiseSource(ctx, type);
+      src.connect(gainNode);
+      src.start();
+
+      this.activeSource = src;
+      this._isPlaying = true;
+      this.setStatus({ backend: 'web-audio', message: `${type} noise playing with Web Audio.` });
+      return true;
+    } catch {
+      this.stopWebAudio();
+      return false;
+    }
+  }
+
+  private async tryPlayNotchedNoiseWebAudio(centerFreq: number, pan: number, gain: number): Promise<boolean> {
+    const result = await this.buildGraph(pan, gain);
+    if (!result) return false;
+    const { ctx, gainNode } = result;
+
+    try {
+      const src = this.createNoiseSource(ctx, 'white');
+      const notch = ctx.createBiquadFilter();
+      notch.type = 'notch';
+      notch.frequency.value = centerFreq;
+      notch.Q.value = 1.4; // ~1 octave notch
+
+      src.connect(notch);
+      notch.connect(gainNode);
+      src.start();
+
+      this.activeSource = src;
+      this._isPlaying = true;
+      this.setStatus({ backend: 'web-audio', message: 'Notched noise playing with Web Audio filtering.' });
+      return true;
+    } catch {
+      this.stopWebAudio();
+      return false;
+    }
+  }
+
+  private async tryPlayNarrowbandWebAudio(centerFreq: number, pan: number, gain: number): Promise<boolean> {
+    const result = await this.buildGraph(pan, gain);
+    if (!result) return false;
+    const { ctx, gainNode } = result;
+
+    try {
+      const src = this.createNoiseSource(ctx, 'white');
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = centerFreq;
+      bp.Q.value = 8;
+
+      src.connect(bp);
+      bp.connect(gainNode);
+      src.start();
+
+      this.activeSource = src;
+      this._isPlaying = true;
+      this.setStatus({ backend: 'web-audio', message: 'Narrowband noise playing with Web Audio filtering.' });
+      return true;
+    } catch {
+      this.stopWebAudio();
+      return false;
+    }
+  }
+
+  private async playFallback(blob: Blob, gain: number, message: string, degraded = false): Promise<boolean> {
+    if (typeof Audio === 'undefined' || typeof URL === 'undefined') {
+      this.setStatus({
+        backend: 'none',
+        message: 'Audio could not start in this browser. Try opening the app in Safari or Chrome.',
+      });
+      return false;
+    }
+
+    try {
+      this.stopFallback();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.loop = true;
+      audio.volume = Math.min(0.75, clamp01(gain));
+      this.fallbackUrl = url;
+      this.fallbackAudio = audio;
+      await audio.play();
+      this._isPlaying = true;
+      this.setStatus({ backend: 'html-audio', message, degraded });
+      return true;
+    } catch {
+      this.stopFallback();
+      this._isPlaying = false;
+      this.setStatus({
+        backend: 'none',
+        message: 'Audio was blocked by this browser. If you are in Telegram, use “Open in Browser” and check media volume / silent mode.',
+      });
+      return false;
+    }
   }
 
   stop(): void {
-    if (!this._isPlaying || !this.ctx) return;
+    this.stopWebAudio();
+    this.stopFallback();
+    this._isPlaying = false;
+  }
+
+  private stopWebAudio(): void {
+    if (!this.ctx) return;
     const ctx = this.ctx;
     const now = ctx.currentTime;
 
     if (this.activeGain) {
-      this.activeGain.gain.setValueAtTime(this.activeGain.gain.value, now);
-      this.activeGain.gain.linearRampToValueAtTime(0, now + FADE_TIME);
+      try {
+        this.activeGain.gain.setValueAtTime(this.activeGain.gain.value, now);
+        this.activeGain.gain.linearRampToValueAtTime(0, now + FADE_TIME);
+      } catch { /* already disconnected */ }
     }
 
     const src = this.activeSource;
@@ -233,11 +486,25 @@ export class AudioEngine {
     this.activeSource = null;
     this.activeGain = null;
     this.activePanner = null;
-    this._isPlaying = false;
   }
 
-  updatePan(pan: number): void {
-    if (this.activePanner) this.activePanner.pan.value = pan;
+  private stopFallback(): void {
+    if (this.fallbackAudio) {
+      try { this.fallbackAudio.pause(); } catch { /* already stopped */ }
+      this.fallbackAudio.removeAttribute('src');
+      this.fallbackAudio.load();
+    }
+    if (this.fallbackUrl) {
+      URL.revokeObjectURL(this.fallbackUrl);
+    }
+    this.fallbackAudio = null;
+    this.fallbackUrl = null;
+  }
+
+  updatePan(_pan: number): void {
+    // HTMLAudio fallback embeds panning in the generated stereo WAV. Active panning
+    // changes are applied by restarting playback from the UI when parameters change.
+    if (this.activePanner) this.activePanner.pan.value = _pan;
   }
 
   get isPlaying(): boolean {

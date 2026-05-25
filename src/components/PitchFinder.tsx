@@ -26,6 +26,7 @@ export default function PitchFinder({ match, onSaved }: Props) {
   const [gain, setGain] = useState(0.5);
   const [playing, setPlaying] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [audioMessage, setAudioMessage] = useState('');
   const earRef = useRef(ear);
   const gainRef = useRef(gain);
 
@@ -38,6 +39,7 @@ export default function PitchFinder({ match, onSaved }: Props) {
   const playTone = useCallback(async () => {
     const ok = await audioEngine.playTone(freq, panFromEar(earRef.current), gainRef.current * 0.9);
     if (ok) setPlaying(true);
+    setAudioMessage(audioEngine.lastStatus.message);
   }, [freq]);
 
   useEffect(() => {
@@ -49,6 +51,7 @@ export default function PitchFinder({ match, onSaved }: Props) {
       audioEngine.stop();
       void audioEngine.playTone(freq, panFromEar(ear), gain * 0.9).then((ok) => {
         if (!ok) setPlaying(false);
+        setAudioMessage(audioEngine.lastStatus.message);
       });
     }
   }, [freq, ear, gain, playing]);
@@ -57,8 +60,9 @@ export default function PitchFinder({ match, onSaved }: Props) {
     if (playing) {
       audioEngine.stop();
       setPlaying(false);
+      setAudioMessage('');
     } else {
-      playTone();
+      void playTone();
     }
   }
 
@@ -206,6 +210,12 @@ export default function PitchFinder({ match, onSaved }: Props) {
           <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
             {playing ? 'Playing — adjust to match your tinnitus' : 'Press to hear tone'}
           </p>
+          {audioMessage && (
+            <div className={`alert ${playing ? 'alert-info' : 'alert-warning'}`} style={{ marginTop: '0.75rem', textAlign: 'left' }}>
+              {audioMessage}
+              {!playing && ' If you are using Telegram’s in-app browser, tap the menu and choose “Open in Browser”, then try Safari or Chrome.'}
+            </div>
+          )}
         </div>
       </div>
 

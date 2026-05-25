@@ -121,6 +121,27 @@ describe('AudioEngine', () => {
     expect(engine.lastStatus.message).toContain('Telegram');
   });
 
+  it('prefers HTMLAudio on iPhone even when Web Audio is available', async () => {
+    const htmlAudio = mockHtmlAudio();
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 Safari/604.1');
+    vi.spyOn(navigator, 'platform', 'get').mockReturnValue('iPhone');
+
+    class FakeAudioContext {
+      state = 'running';
+      sampleRate = 48000;
+    }
+
+    window.AudioContext = FakeAudioContext as unknown as typeof AudioContext;
+
+    const engine = new AudioEngine();
+    const ok = await engine.playTone(440, 0, 0.5);
+
+    expect(ok).toBe(true);
+    expect(htmlAudio.play).toHaveBeenCalledTimes(1);
+    expect(engine.lastStatus.backend).toBe('html-audio');
+    expect(engine.lastStatus.message).toContain('iPhone-compatible');
+  });
+
   it('falls back to HTMLAudio when advanced notched Web Audio cannot resume', async () => {
     const htmlAudio = mockHtmlAudio();
 

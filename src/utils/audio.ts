@@ -66,6 +66,12 @@ function getAudioContextCtor(): AudioContextCtor | null {
   );
 }
 
+function isAppleMobile(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent;
+  return /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
 function fillWhiteNoise(data: Float32Array): void {
   for (let i = 0; i < data.length; i++) {
     data[i] = Math.random() * 2 - 1;
@@ -273,6 +279,7 @@ export class AudioEngine {
       maxTouchPoints: nav?.maxTouchPoints,
       visibilityState: doc?.visibilityState,
       isSecureContext: win?.isSecureContext,
+      preferHtmlAudio: isAppleMobile(),
       audioContext: {
         hasAudioContext: Boolean(win?.AudioContext),
         hasWebkitAudioContext: Boolean((win as (Window & { webkitAudioContext?: AudioContextCtor }) | null)?.webkitAudioContext),
@@ -357,18 +364,35 @@ export class AudioEngine {
 
   async playTone(frequency: number, pan: number, gain: number): Promise<boolean> {
     this.stop();
+    if (isAppleMobile()) {
+      this.log('prefer-html-audio', { reason: 'apple-mobile-web-audio-can-report-running-while-inaudible' });
+      return this.playFallback(makeToneBlob(frequency, pan), gain, 'Tone playing using iPhone-compatible audio mode.');
+    }
     if (await this.tryPlayToneWebAudio(frequency, pan, gain)) return true;
     return this.playFallback(makeToneBlob(frequency, pan), gain, 'Tone playing using the compatible audio backend.');
   }
 
   async playNoise(type: NoiseType, pan: number, gain: number): Promise<boolean> {
     this.stop();
+    if (isAppleMobile()) {
+      this.log('prefer-html-audio', { reason: 'apple-mobile-web-audio-can-report-running-while-inaudible' });
+      return this.playFallback(makeNoiseBlob(type, pan), gain, `${type} noise playing using iPhone-compatible audio mode.`);
+    }
     if (await this.tryPlayNoiseWebAudio(type, pan, gain)) return true;
     return this.playFallback(makeNoiseBlob(type, pan), gain, `${type} noise playing using the compatible audio backend.`);
   }
 
   async playNotchedNoise(centerFreq: number, pan: number, gain: number): Promise<boolean> {
     this.stop();
+    if (isAppleMobile()) {
+      this.log('prefer-html-audio', { reason: 'apple-mobile-web-audio-can-report-running-while-inaudible' });
+      return this.playFallback(
+        makeFilteredNoiseBlob('notch', centerFreq, pan),
+        gain,
+        'Notched-noise approximation playing using iPhone-compatible audio mode.',
+        true,
+      );
+    }
     if (await this.tryPlayNotchedNoiseWebAudio(centerFreq, pan, gain)) return true;
     return this.playFallback(
       makeFilteredNoiseBlob('notch', centerFreq, pan),
@@ -380,6 +404,15 @@ export class AudioEngine {
 
   async playNarrowband(centerFreq: number, pan: number, gain: number): Promise<boolean> {
     this.stop();
+    if (isAppleMobile()) {
+      this.log('prefer-html-audio', { reason: 'apple-mobile-web-audio-can-report-running-while-inaudible' });
+      return this.playFallback(
+        makeFilteredNoiseBlob('bandpass', centerFreq, pan),
+        gain,
+        'Narrowband-noise approximation playing using iPhone-compatible audio mode.',
+        true,
+      );
+    }
     if (await this.tryPlayNarrowbandWebAudio(centerFreq, pan, gain)) return true;
     return this.playFallback(
       makeFilteredNoiseBlob('bandpass', centerFreq, pan),

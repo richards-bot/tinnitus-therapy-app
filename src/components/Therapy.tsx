@@ -33,7 +33,7 @@ function AudioPlayer({
 }: {
   label: string;
   mode: TherapyMode;
-  onPlay: (gain: number) => boolean;
+  onPlay: (gain: number) => Promise<boolean>;
   onStop: () => void;
 }) {
   const [playing, setPlaying] = useState(false);
@@ -53,9 +53,9 @@ function AudioPlayer({
     setRemaining(null);
   }, [onStop]);
 
-  function handlePlay() {
+  async function handlePlay() {
     if (playing) { stopAll(); return; }
-    const ok = onPlay(gain);
+    const ok = await onPlay(gain);
     if (!ok) return;
     setPlaying(true);
     startedAtRef.current = new Date().toISOString();
@@ -370,7 +370,7 @@ function MindfulnessTab() {
 function SoundTab({ match }: { match: TinnitusMatch | null }) {
   const [noiseType, setNoiseType] = useState<NoiseType>('pink');
 
-  function handlePlay(gain: number): boolean {
+  function handlePlay(gain: number): Promise<boolean> {
     return audioEngine.playNoise(noiseType, 0, gain * 0.9);
   }
 
@@ -430,8 +430,8 @@ function SoundTab({ match }: { match: TinnitusMatch | null }) {
 function NotchedTab({ match }: { match: TinnitusMatch | null }) {
   const [useNarrowband, setUseNarrowband] = useState(false);
 
-  function handlePlay(gain: number): boolean {
-    if (!match) return false;
+  function handlePlay(gain: number): Promise<boolean> {
+    if (!match) return Promise.resolve(false);
     if (useNarrowband) {
       return audioEngine.playNarrowband(match.frequency, panFromEar(match.ear), gain * 0.9);
     }

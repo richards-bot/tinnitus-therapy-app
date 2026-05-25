@@ -87,30 +87,32 @@ export class AudioEngine {
   private activePanner: StereoPannerNode | null = null;
   private _isPlaying = false;
 
-  private getCtx(): AudioContext | null {
+  private async getCtx(): Promise<AudioContext | null> {
     const Ctor = getAudioContextCtor();
     if (!Ctor) return null;
     if (!this.ctx || this.ctx.state === 'closed') {
       this.ctx = new Ctor();
     }
     if (this.ctx.state === 'suspended') {
-      void this.ctx.resume();
+      try {
+        await this.ctx.resume();
+      } catch {
+        return null;
+      }
     }
+    if (this.ctx.state !== 'running') return null;
     return this.ctx;
   }
 
-  private buildGraph(pan: number, gain: number): { ctx: AudioContext; gainNode: GainNode } | null {
-    const ctx = this.getCtx();
+  private async buildGraph(pan: number, gain: number): Promise<{ ctx: AudioContext; gainNode: GainNode } | null> {
+    const ctx = await this.getCtx();
     if (!ctx) return null;
 
-    if (!this.masterGain) {
+    if (!this.masterGain || this.masterGain.context !== ctx) {
       this.masterGain = ctx.createGain();
       this.masterGain.gain.value = MASTER_GAIN_CAP;
       this.masterGain.connect(ctx.destination);
     }
-
-    const panner = ctx.createStereoPanner();
-    panner.pan.value = pan;
 
     const gainNode = ctx.createGain();
     gainNode.gain.setValueAtTime(0, ctx.currentTime);
@@ -119,18 +121,24 @@ export class AudioEngine {
       ctx.currentTime + FADE_TIME,
     );
 
-    gainNode.connect(panner);
-    panner.connect(this.masterGain);
-
-    this.activePanner = panner;
+    if (typeof ctx.createStereoPanner === 'function') {
+      const panner = ctx.createStereoPanner();
+      panner.pan.value = pan;
+      gainNode.connect(panner);
+      panner.connect(this.masterGain);
+      this.activePanner = panner;
+    } else {
+      gainNode.connect(this.masterGain);
+      this.activePanner = null;
+    }
     this.activeGain = gainNode;
 
     return { ctx, gainNode };
   }
 
-  playTone(frequency: number, pan: number, gain: number): boolean {
+  async playTone(frequency: number, pan: number, gain: number): Promise<boolean> {
     this.stop();
-    const result = this.buildGraph(pan, gain);
+    const result = await this.buildGraph(pan, gain);
     if (!result) return false;
     const { ctx, gainNode } = result;
 
@@ -145,9 +153,9 @@ export class AudioEngine {
     return true;
   }
 
-  playNoise(type: NoiseType, pan: number, gain: number): boolean {
+  async playNoise(type: NoiseType, pan: number, gain: number): Promise<boolean> {
     this.stop();
-    const result = this.buildGraph(pan, gain);
+    const result = await this.buildGraph(pan, gain);
     if (!result) return false;
     const { ctx, gainNode } = result;
 
@@ -160,9 +168,9 @@ export class AudioEngine {
     return true;
   }
 
-  playNotchedNoise(centerFreq: number, pan: number, gain: number): boolean {
+  async playNotchedNoise(centerFreq: number, pan: number, gain: number): Promise<boolean> {
     this.stop();
-    const result = this.buildGraph(pan, gain);
+    const result = await this.buildGraph(pan, gain);
     if (!result) return false;
     const { ctx, gainNode } = result;
 
@@ -182,9 +190,9 @@ export class AudioEngine {
     return true;
   }
 
-  playNarrowband(centerFreq: number, pan: number, gain: number): boolean {
+  async playNarrowband(centerFreq: number, pan: number, gain: number): Promise<boolean> {
     this.stop();
-    const result = this.buildGraph(pan, gain);
+    const result = await this.buildGraph(pan, gain);
     if (!result) return false;
     const { ctx, gainNode } = result;
 

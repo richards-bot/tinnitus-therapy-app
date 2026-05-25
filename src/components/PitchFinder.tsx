@@ -33,17 +33,23 @@ export default function PitchFinder({ match, onSaved }: Props) {
   useEffect(() => { gainRef.current = gain; }, [gain]);
 
   const freq = logSliderToFreq(sliderPos);
+  const lastAudioParams = useRef({ freq, ear, gain });
 
-  const playTone = useCallback(() => {
-    const ok = audioEngine.playTone(freq, panFromEar(earRef.current), gainRef.current * 0.9);
+  const playTone = useCallback(async () => {
+    const ok = await audioEngine.playTone(freq, panFromEar(earRef.current), gainRef.current * 0.9);
     if (ok) setPlaying(true);
   }, [freq]);
 
   useEffect(() => {
-    if (playing) {
+    const previous = lastAudioParams.current;
+    const changed = previous.freq !== freq || previous.ear !== ear || previous.gain !== gain;
+    lastAudioParams.current = { freq, ear, gain };
+
+    if (playing && changed) {
       audioEngine.stop();
-      const ok = audioEngine.playTone(freq, panFromEar(ear), gain * 0.9);
-      if (!ok) setPlaying(false);
+      void audioEngine.playTone(freq, panFromEar(ear), gain * 0.9).then((ok) => {
+        if (!ok) setPlaying(false);
+      });
     }
   }, [freq, ear, gain, playing]);
 

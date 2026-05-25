@@ -1,75 +1,68 @@
-# Project Specification
+# QuietPath Specification
 
-> Status: Draft | Updated: [DATE]
+## Goal
 
-## Summary
+Build a static, GitHub Pages-deployable tinnitus self-management app grounded in current clinical guidelines and research.
 
-[2-3 sentences: what this project does and why]
+## User outcomes
 
-## Problem & Success Criteria
+- Understand when tinnitus needs urgent or prompt medical evaluation.
+- Record a brief non-diagnostic tinnitus profile and distress baseline.
+- Approximate tinnitus pitch safely using browser audio.
+- Receive a personalised plan that prioritises evidence-based distress management.
+- Use self-guided habituation/adaptation, CBT-style exercises, mindfulness, and sound enrichment.
+- Optionally try experimental notched/narrowband sound tools with conservative claims.
 
-**Current state:** [What problems exist?]
-**Desired state:** [What does success look like?]
+## Functional requirements
 
-- [ ] [Measurable outcome 1]
-- [ ] [Measurable outcome 2]
+### Safety and onboarding
 
-## Scope
+- Show medical disclaimer before app use.
+- Warn about safe volume and limits of browser audio calibration.
+- List red flags: sudden hearing loss, pulsatile tinnitus, unilateral/sudden symptoms, neurological symptoms, vertigo/dizziness, ear pain/discharge, head trauma, suicidal thoughts.
+- Explain that data is stored locally only.
 
-**In:** [Feature 1], [Feature 2], [Feature 3]
-**Out:** [Excluded item 1], [Excluded item 2]
+### Assessment
 
-## Requirements
+- Capture laterality, onset, duration, hearing-loss suspicion, distress, sleep impact, and red flags.
+- Include a 7-item tinnitus-distress-inspired screening score (non-diagnostic).
+- Persist answers locally.
 
-### FR1: [Requirement Name]
-**Priority:** High | Medium | Low
-- [ ] [Acceptance criterion 1]
-- [ ] [Acceptance criterion 2]
+### Pitch finder
 
-### FR2: [Requirement Name]
-**Priority:** High | Medium | Low
-- [ ] [Acceptance criterion 1]
-- [ ] [Acceptance criterion 2]
+- Use Web Audio oscillator with logarithmic 20–16000 Hz control.
+- Provide coarse octave and fine semitone adjustments.
+- Provide left/right/both panning.
+- Default to low/safe gain and warn about high-frequency tones.
+- Save frequency and ear locally.
 
-### Non-Functional
-- **Performance:** [Response time, throughput targets]
-- **Security:** [Auth, data protection requirements]
-- **Reliability:** [Uptime, recovery targets]
+### Treatment plan
 
-## Technical Architecture
+- Generate recommendations from assessment and saved pitch.
+- Urgent red flags create top-priority referral recommendation.
+- Distress/sleep burden prioritises CBT, sleep, mindfulness and education.
+- Hearing loss prompts audiology/hearing-aid assessment.
+- Sound enrichment is optional/moderate evidence.
+- Notched noise is added only with saved pitch and labelled experimental.
 
-| Layer | Technology | Rationale |
-|-------|------------|-----------|
-| Frontend | [tech] | [why] |
-| Backend | [tech] | [why] |
-| Database | [tech] | [why] |
+### Therapy modes
 
-### Key Components
+- Education and habituation/adaptation content.
+- CBT-style thought challenging, attention shifting, acceptance practice.
+- Mindfulness/relaxation exercises.
+- Sound enrichment with white/pink/brown noise.
+- Notched noise and narrowband noise centred on saved frequency.
+- Session timer and local session log.
 
-**[Component 1]:** [Purpose, interfaces, dependencies]
-**[Component 2]:** [Purpose, interfaces, dependencies]
+### Research library
 
-## Data Model
+- Summarise evidence quality and link/cite clinical guidelines, systematic reviews and RCTs.
+- Avoid unsupported cure or loudness-reduction claims.
 
-| Entity | Key Fields | Relationships |
-|--------|-----------|---------------|
-| [Entity 1] | id, name, created_at | has many [Entity 2] |
-| [Entity 2] | id, entity1_id, ... | belongs to [Entity 1] |
+## Non-functional requirements
 
-## API Endpoints
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | /api/resource | List resources |
-| POST | /api/resource | Create resource |
-
-## Testing Strategy
-
-- **Unit:** 80% coverage, focus on business logic
-- **Integration:** API endpoints, database operations
-- **E2E:** Critical user flows
-
-## Open Questions
-
-- [ ] [Question 1]
-- [ ] [Question 2]
+- Static app only; no backend.
+- Mobile-friendly and keyboard-accessible controls.
+- TypeScript strict build.
+- Unit tests for plan-generation and pure audio utilities.
+- GitHub Pages workflow builds and deploys `dist`.

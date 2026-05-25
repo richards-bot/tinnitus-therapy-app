@@ -1,122 +1,58 @@
-# CLAUDE.md
+# Project: QuietPath
 
 ## Project Overview
 
-**What:** [Brief description]
-**Stack:** [e.g., TypeScript, React, Node.js, PostgreSQL]
-**Status:** [Active development | Maintenance]
+**What:** Evidence-informed static web app for tinnitus self-management, pitch matching, personalised planning, and safe sound tools.
+**Stack:** Vite, React, TypeScript, Web Audio API, Vitest, ESLint, GitHub Pages.
+**Status:** Active development / MVP deployed.
 
 ## Commands
 
-```
+```bash
 npm run dev          # Dev server
 npm run build        # Production build
 npm test             # Run tests
 npm run lint         # Lint
-npm run typecheck    # Type checks (if available)
-npm run ci           # Full verification (if available)
-npm run e2e          # Critical-path/browser verification (if available)
+npm run typecheck    # Type checks
+npm run ci           # Full verification: typecheck, lint, tests, build
+npm run preview      # Preview production build
 ```
+
+## Product guardrails
+
+- This is educational self-management software, not medical advice or a medical device.
+- Do not claim to cure tinnitus or reliably reduce tinnitus loudness.
+- CBT/education/sleep/stress work is first-line for distress reduction.
+- Sound enrichment is optional and should be low-volume/comfortable.
+- Notched noise/music is experimental and must be labelled as such.
+- Red flags require referral messaging: sudden hearing loss, pulsatile tinnitus, one-sided sudden tinnitus/asymmetric hearing, neurological symptoms, severe vertigo, ear pain/discharge, head trauma, suicidal thoughts.
+- All user data stays local in `localStorage`.
 
 ## Structure
 
-```
+```text
 src/
-  components/     # UI components
-  services/       # Business logic
-  utils/          # Pure utilities
+  components/     # App UI and feature modules
+  services/       # Plan generation and evidence logic
+  utils/          # Web Audio and localStorage utilities
   types/          # Type definitions
-  config/         # Configuration
-tests/            # Mirrors src/ structure
-tests/scenarios/  # Critical-path scenario checks
-docs/             # SPEC.md, DECISIONS.md
-docs/templates/   # Task / review / scenario templates
-plans/current/    # Active execution briefs
-openspec/specs/   # Feature specifications
-examples/         # Known-good implementation patterns
+tests/unit/       # Vitest unit tests
+docs/             # SPEC and decision log
+.github/workflows # GitHub Pages deployment
 ```
 
-## Naming
+## Evidence sources to preserve
 
-- **Files:** kebab-case (`user-service.ts`)
-- **Classes/Types:** PascalCase (`UserService`)
-- **Functions/Vars:** camelCase (`getUserById`)
-- **Constants:** SCREAMING_SNAKE (`MAX_RETRY_COUNT`)
-- **Booleans:** is/has/should prefix
-
-## Operating Model
-
-- **OpenSpec** defines what to build (requirements, acceptance criteria, decisions)
-- **Beads** tracks how work executes (queue, dependencies, progress)
-- **Human checkpoint approvals** gate transitions between major phases
-
-## Beads — MANDATORY (enforced by hooks)
-
-**STOP. Do not write or edit code without an active beads issue.**
-
-### Before ANY code change
-
-1. Run `bd list` to see current issues
-2. If no in-progress issue exists:
-   - Pick one: `bd ready` (shows unblocked issues)
-   - Or create one: `bd create "description" -p <priority> --json`
-3. Mark it active: `bd update <id> --status in_progress`
-
-### During work
-
-- **Commit after every meaningful change** — don't batch all changes into one commit at the end
-- Commit with issue ID: `git commit -m "type(scope): description (bd-xxx)"`
-- Sync periodically: `bd sync`
-
-### When done
-
-1. Close the issue: `bd close <id> --reason "Completed" --json`
-2. Sync: `bd sync`
-3. Run tests before finishing
-
-### Critical rules
-
-- NEVER use `bd edit` (interactive — agents cannot use it)
-- Use `bd update <id> --title/--description/--notes` instead
-- Always use `--json` flag when creating/querying for structured output
-- Run `bd sync` after making issue changes
-- Include issue ID `(bd-xxx)` in commit messages
-
-Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`
-
-## Execution Loop (default)
-
-1. Read active OpenSpec artifact (`openspec/changes/*` preferred, else `openspec/specs/*`)
-2. Start/pick a bead and mark `in_progress`
-3. For non-trivial work, create or update a brief in `plans/current/` or `docs/templates/task-brief.md`
-4. Implement one thin vertical slice with outside-in tests
-5. Run verification (`test`, `lint`, `typecheck`, scenarios where available)
-6. Run a second-pass review using `docs/templates/review-prompt.md`
-7. Checkpoint summary for human approval at phase boundary
-8. Commit with `(bd-xxx)`, sync beads, continue or close
+- AAO-HNSF Clinical Practice Guideline: Tinnitus, 2014. DOI: 10.1177/0194599814545325
+- NICE NG155, 2020
+- Fuller et al. Cochrane CBT, 2020. DOI: 10.1002/14651858.CD012614.pub2
+- Cima et al. Lancet, 2012. DOI: 10.1016/S0140-6736(12)60469-3
+- Beukes et al. JAMA Otolaryngology, 2018. DOI: 10.1001/jamaoto.2018.2238
+- Sereda et al. Cochrane sound therapy, 2018. DOI: 10.1002/14651858.CD013094.pub2
+- Okamoto et al. PNAS notched music, 2010. DOI: 10.1073/pnas.0911268107
+- McKenna et al. MBCT, 2017. DOI: 10.1159/000478267
+- Hoare et al. hearing aids, 2014. DOI: 10.1002/14651858.CD010151.pub2
 
 ## Git
 
-Commit format: `type(scope): description (bd-xxx)`
-Branch naming: `feature/*`, `fix/*` from `main`
-
-## Do Not Modify
-
-- `package-lock.json` manually
-- `.env` files
-- `infrastructure/` without explicit request
-
-## Always
-
-- Follow outside-in test order: acceptance/E2E -> integration -> unit
-- Prefer scenario-based verification for critical flows, not just low-level tests
-- Run tests before marking work complete
-- Update `docs/DECISIONS.md` for architectural changes
-- Keep bead notes linked to spec paths (`Spec source: openspec/...`)
-- Run `bd sync` before ending a session
-
-## Context Files
-
-- `docs/SPEC.md` - Project specification
-- `docs/DECISIONS.md` - Architecture decisions
-- `openspec/specs/` - Feature specifications
+Commit format: Conventional commits. Beads was initialised by the template but the Dolt backend is broken in this relocated working copy; see `docs/DECISIONS.md`.

@@ -1,153 +1,55 @@
-# Claude Code Project Template
+# QuietPath — Evidence-informed tinnitus self-management
 
-A ready-to-use project template for building software with [Claude Code](https://code.claude.com/docs/en/setup). It gives Claude structured rules, slash commands, git hooks, and a fresh issue-tracking workflow so you can go from idea to working code in a single session.
+QuietPath is a privacy-first static web app for tinnitus self-management. It helps a user:
 
-## What's Included
+- Screen for tinnitus red flags and seek appropriate medical care.
+- Record a brief tinnitus/distress assessment.
+- Approximate their tinnitus frequency with a safe Web Audio pitch finder.
+- Generate a conservative treatment plan grounded in clinical guidelines and systematic reviews.
+- Use CBT-informed habituation/adaptation exercises, mindfulness, sound enrichment, narrowband noise, and experimental notched noise.
+- Review the research basis and evidence strength for each intervention.
 
-- **CLAUDE.md** -- Instructions Claude follows automatically (coding style, commit format, workflow)
-- **Slash commands** -- `/brain-dump`, `/start-bead`, `/plan`, `/tdd`, `/checkpoint`, `/complete-bead`, `/code-review`, `/status`
-- **Beads issue tracking** -- Fresh Git-backed task tracking initialised during setup
-- **Hooks** -- Automated guardrails that enforce issue tracking before code changes
-- **Rules** -- Agent behavior, coding style, security, and testing standards in `.claude/rules/`
-- **OpenSpec** -- Lightweight feature specification workflow in `openspec/`
-- **Doc templates** -- `SPEC.md` and `DECISIONS.md` for project specs and architecture decisions
-- **Execution templates** -- Task brief, review prompt, scenario test, plan, and PR templates
+QuietPath does **not** claim to cure tinnitus or reliably reduce tinnitus loudness. It is educational self-management software, not a medical device or a substitute for audiology/ENT/mental-health care.
 
-## Prerequisites
+## Evidence stance
 
-- [Claude Code](https://code.claude.com/docs/en/setup) (`curl -fsSL https://claude.ai/install.sh | bash`)
-- [Beads](https://github.com/steveyegge/beads) (`npm install -g @beads/bd` or `brew install beads`)
-- [OpenSpec](https://openspec.dev/) (`npm install -g @fission-ai/openspec@latest`)
+Prioritised:
 
-## Quick Start
+- Education, reassurance, red-flag triage and referral.
+- CBT-informed tinnitus distress management.
+- Sleep and stress regulation.
+- Safe sound enrichment / partial masking.
+- Audiology/hearing-aid assessment where hearing loss is suspected.
 
-### 1. Create your project
+Optional/experimental:
 
-```bash
-./setup.sh my-project
-cd ~/my-project
-```
+- Browser-based pitch matching.
+- Notched noise centred on the saved tinnitus frequency.
+- Narrowband noise for sound matching/enrichment.
 
-This copies the template, initializes git, and sets up beads tracking.
+Key sources include AAO-HNSF tinnitus guideline (2014), NICE NG155, Cochrane CBT review (2020), Cima et al. Lancet (2012), Beukes et al. JAMA Otolaryngology (2018), Sereda et al. Cochrane sound therapy (2018), Scherer et al. JAMA Otolaryngology TRT RCT (2019), Okamoto et al. PNAS notched music (2010), McKenna et al. MBCT (2017), and Hoare et al. hearing aids review (2014).
 
-Beads state is created fresh for every new project. The template repo itself does **not** ship canonical issue history.
-
-### 2. Start Claude Code and describe your idea
+## Local development
 
 ```bash
-claude
-> /brain-dump
+npm install
+npm run dev
 ```
 
-The `/brain-dump` command walks you through describing your project. Claude will populate `openspec/project.md`, create feature specs, fill out docs, and create beads issues for each piece of work.
-
-> Optional: if you prefer the native OpenSpec workflow, run `openspec update` and use `/opsx:propose` for spec-first change proposals.
-
-OpenSpec ships here as scaffold only. It becomes "real" once `/brain-dump` or an OpenSpec command creates an actual artifact under `openspec/changes/` or `openspec/specs/`.
-
-### 3. Start building
+## Verification
 
 ```bash
-> /start-bead
+npm run typecheck
+npm run lint
+npm run test
+npm run build
+npm run ci
 ```
 
-Claude picks up an issue, marks it in-progress, and starts working. When you're done:
+## Deployment
 
-```bash
-> /complete-bead
-```
+The app is built with Vite and configured with `base: '/tinnitus-therapy-app/'` for GitHub Pages. The Pages workflow lives at `.github/workflows/deploy-pages.yml` and deploys `dist` on pushes to `main`.
 
-This runs tests, commits, closes the issue, and syncs.
+## Privacy
 
-## Project Structure
-
-```
-CLAUDE.md               # Agent instructions (auto-loaded by Claude Code)
-GETTING-STARTED.md      # Detailed setup and workflow reference
-docs/
-  SPEC.md               # Project specification (fill in or use /brain-dump)
-  DECISIONS.md           # Architecture decision log
-  templates/            # Reusable task/review/scenario templates
-plans/
-  current/              # Active task briefs and execution plans
-openspec/
-  project.md            # Project context (identity, stack, constraints)
-  specs/                # Feature specifications
-  changes/              # Change proposals for existing features
-.github/
-  pull_request_template.md  # PR summary + verification checklist
-.claude/
-  commands/             # Slash commands (/start-bead, /tdd, etc.)
-  rules/                # Auto-loaded rules (behavior, style, security, testing)
-  hooks.json            # Automated hooks (beads enforcement, console.log warnings)
-src/                    # Source code
-examples/               # Known-good patterns and implementation recipes
-tests/                  # Test files (mirrors src/ structure)
-  unit/                 # Unit tests
-  integration/          # Integration tests
-  scenarios/            # Scenario / critical-path verification
-infrastructure/         # Deployment configs
-.env.example            # Environment variable template
-```
-
-## Slash Commands
-
-| Command | What it does |
-|---------|-------------|
-| `/brain-dump` | Turn an unstructured idea into specs, docs, and issues |
-| `/start-bead` | Pick or create a beads issue and start work |
-| `/complete-bead` | Run tests, commit, close the issue, sync |
-| `/checkpoint` | Stage, commit, and sync current progress |
-| `/plan` | Design an approach and wait for your approval before coding |
-| `/tdd` | Test-driven development cycle (red/green/refactor) |
-| `/code-review` | Security and quality review of recent changes |
-| `/status` | Show issues, git state, and ready tasks |
-
-## Workflow
-
-The template enforces a simple loop:
-
-1. **Pick work** -- `bd ready` shows unblocked issues, or create one with `bd create`
-2. **Start** -- `bd update <id> --status in_progress`
-3. **Brief & plan** -- Fill out `plans/current/TEMPLATE.md` or `docs/templates/task-brief.md` for non-trivial work
-4. **Build** -- Write code with Claude. Commit frequently with `(bd-xxx)` in the message.
-5. **Review & verify** -- Use `docs/templates/review-prompt.md` and scenario checks before merge
-6. **Finish** -- `bd close <id>`, run tests, `bd sync`, `git push`
-
-Hooks automatically warn you if you try to edit code or commit without an active issue.
-
-## Customising the Template
-
-After running `setup.sh`, make it yours:
-
-- **CLAUDE.md** -- Update the project overview, stack, and commands sections
-- **docs/SPEC.md** -- Fill in your project specification (or let `/brain-dump` do it)
-- **openspec/project.md** -- Set your project identity, tech stack, and constraints
-- **.claude/rules/** -- Adjust coding style, security, or testing rules to match your preferences
-- **.env.example** -- Add your project's environment variables
-- **docs/workflows/template-workflow.md** -- Review the intended setup, delivery loop, and template self-audit checks
-- **docs/templates/** -- Tailor the task brief, review prompt, and scenario templates to your stack
-- **examples/** -- Add working patterns you want future agents to reuse
-
-## Manual Setup
-
-If you prefer not to use `setup.sh`:
-
-```bash
-git clone https://github.com/richpryce/claude-code-project-template.git my-project
-cd my-project
-rm -rf .git .beads setup.sh
-git init
-bd init && bd hooks install
-cp .env.example .env
-```
-
-If you copy the directory instead of cloning it, copy **this repo root** directly—there is no nested `project-template/` directory.
-
-## Workflow Documentation
-
-- `GETTING-STARTED.md` — setup and daily usage
-- `docs/workflows/template-workflow.md` — bootstrap, OpenSpec + Beads workflow, and template self-audit checks
-- `docs/templates/task-brief.md` — brief for non-trivial work
-- `docs/templates/review-prompt.md` — reusable adversarial review prompt
-- `docs/templates/scenario-test.md` — critical-path scenario template
+There is no backend. Assessment answers, saved pitch, treatment plan, presets and session logs are stored in browser `localStorage` under `quietpath-v1`.

@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "server",
+  "dolt_database": "tinnitus_therapy_app",
+  "project_id": "1b71e685-537b-4f99-acef-22337b051d6e"
+}
